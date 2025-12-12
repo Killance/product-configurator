@@ -1,3 +1,4 @@
+import json
 import logging
 
 from odoo import http, models
@@ -5,33 +6,12 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.http import request, route
 from odoo.tools.safe_eval import safe_eval
 
-from odoo.addons.http_routing.models.ir_http import slug
 from odoo.addons.website_sale.controllers.main import WebsiteSale
-from odoo.addons.website_sale_product_configurator.controllers.main import (
+from odoo.addons.website_sale.controllers.product_configurator import (
     WebsiteSaleProductConfiguratorController,
 )
 
 _logger = logging.getLogger(__name__)
-
-
-class CustomWebsiteSaleProductConfigurator(WebsiteSaleProductConfiguratorController):
-    @route()
-    def show_advanced_configurator(
-        self,
-        product_id,
-        variant_values,
-        add_qty=1,
-        force_dialog=False,
-        **kw,
-    ):
-        """Inherit: skips showing the advanced product configurator modal for
-        a product"""
-        product = request.env["product.product"].browse(int(product_id))
-        if product.config_ok:
-            return False
-        return super().show_advanced_configurator(
-            product_id, variant_values, add_qty=add_qty, force_dialog=force_dialog, **kw
-        )
 
 
 def get_pricelist():
@@ -47,13 +27,31 @@ def get_pricelist():
 error_page = "/website_product_configurator/error_page/"
 
 
+class CustomWebsiteSaleProductConfigurator(WebsiteSaleProductConfiguratorController):
+    @route(
+        route="/website_sale/should_show_product_configurator",
+        type="json",
+        auth="public",
+        website=True,
+    )
+    def website_sale_should_show_product_configurator(
+        self, product_template_id, ptav_ids, is_product_configured
+    ):
+        product_template = request.env["product.template"].browse(product_template_id)
+        if product_template.config_ok:
+            return False
+        return super().website_sale_should_show_product_configurator(
+            product_template_id, ptav_ids, is_product_configured
+        )
+
+
 class ProductConfigWebsiteSale(WebsiteSale):
     def get_config_session(self, product_tmpl_id):
         cfg_session_obj = request.env["product.config.session"]
         cfg_session = False
         product_config_sessions = request.session.get("product_config_session", {})
-        is_public_user = request.env.user.has_group("base.group_public")
-        cfg_session_id = product_config_sessions.get(product_tmpl_id.id)
+        is_public_user = request.env.user._has_group("base.group_public")
+        cfg_session_id = product_config_sessions.get(f"{product_tmpl_id.id}")
         if cfg_session_id:
             cfg_session = cfg_session_obj.search(
                 [("id", "=", int(cfg_session_id))], limit=1
@@ -66,10 +64,13 @@ class ProductConfigWebsiteSale(WebsiteSale):
                 force_create=is_public_user,
                 user_id=request.env.user.id,
             )
-            product_config_sessions = {product_tmpl_id.id: cfg_session.id}
+            product_config_sessions = {f"{product_tmpl_id.id}": cfg_session.id}
             request.session["product_config_session"] = product_config_sessions
 
-        if cfg_session.user_id.has_group("base.group_public") and not is_public_user:
+        if (
+            cfg_session.user_id.sudo()._has_group("base.group_public")
+            and not is_public_user
+        ):
             cfg_session.user_id = request.env.user
         return cfg_session
 
@@ -139,7 +140,7 @@ class ProductConfigWebsiteSale(WebsiteSale):
                 pass
             elif not active_step or active_step not in open_cfg_step_lines:
                 active_step = open_cfg_step_lines[:1]
-                cfg_session.config_step = "%s" % (active_step.id)
+                cfg_session.config_step = f"{active_step.id}"
 
         cfg_session = cfg_session.sudo()
         config_image_ids = False
@@ -360,7 +361,7 @@ class ProductConfigWebsiteSale(WebsiteSale):
         except Exception as Ex:
             return {"error": Ex}
 
-        # prepare dictionary in formate needed to pass in onchage
+        # prepare dictionary in formate needed to pass in onchange
         form_values = self.get_orm_form_vals(form_values, config_session_id)
         config_vals = self._prepare_configurator_values(form_values, config_session_id)
 
@@ -387,9 +388,7 @@ class ProductConfigWebsiteSale(WebsiteSale):
             return {"error": Ex}
 
         # if no step is defined or some attribute remains to add in a step
-        open_cfg_step_line_ids = [
-            "%s" % (step_id) for step_id in open_cfg_step_line_ids
-        ]
+        open_cfg_step_line_ids = [f"{step_id}" for step_id in open_cfg_step_line_ids]
         extra_attr_line_ids = self.get_extra_attribute_line_ids(product_template_id)
         if extra_attr_line_ids:
             open_cfg_step_line_ids.append("configure")
@@ -450,7 +449,7 @@ class ProductConfigWebsiteSale(WebsiteSale):
         if next_step and isinstance(
             next_step, type(request.env["product.config.step.line"])
         ):
-            next_step = "%s" % (next_step.id)
+            next_step = f"{next_step.id}"
         if next_step:
             config_session_id.config_step = next_step
         return {"next_step": next_step}
@@ -513,8 +512,9 @@ class ProductConfigWebsiteSale(WebsiteSale):
             config_session_id.sudo().action_confirm()
             product = config_session_id.product_id
             if product:
+                slug = request.env["ir.http"]._slug
                 redirect_url = "/product_configurator/product"
-                redirect_url += "/%s" % (slug(config_session_id))
+                redirect_url += f"/{slug(config_session_id)}"
                 return {
                     "product_id": product.id,
                     "config_session": config_session_id.id,
@@ -530,6 +530,7 @@ class ProductConfigWebsiteSale(WebsiteSale):
         type="http",
         auth="public",
         website=True,
+        sitemap=False,
     )
     def cfg_session(self, cfg_session_id, **post):
         """Render product page of product_id"""
@@ -555,11 +556,13 @@ class ProductConfigWebsiteSale(WebsiteSale):
         pricelist = get_pricelist()
         product_config_session = request.session.get("product_config_session")
 
-        if product_config_session and product_config_session.get(product_tmpl_id.id):
+        if product_config_session and product_config_session.get(
+            f"{product_tmpl_id.id}"
+        ):
             request.session.pop("product_config_session", None)
-
-        reconfigure_product_url = "/product_configurator/reconfigure/%s" % slug(
-            product_id
+        slug = request.env["ir.http"]._slug
+        reconfigure_product_url = (
+            f"/product_configurator/reconfigure/{slug(product_id)}"
         )
         values = {
             "product_variant": product_id,
@@ -586,18 +589,19 @@ class ProductConfigWebsiteSale(WebsiteSale):
             tmpl_value_ids = product_id.product_template_attribute_value_ids
             cfg_session.value_ids = tmpl_value_ids.mapped("product_attribute_value_id")
             cfg_session.product_id = product_id.id
-            return request.redirect("/shop/product/%s" % (slug(product_tmpl_id)))
+            slug = request.env["ir.http"]._slug
+            return request.redirect(f"/shop/product/{slug(product_tmpl_id)}")
         except Exception:
             error_code = 1
             return request.redirect(
-                "/website_product_configurator/error_page/%s" % (error_code)
+                f"/website_product_configurator/error_page/{error_code}"
             )
 
     @http.route(
         [
             error_page,
-            "%s<string:message>" % error_page,
-            "%s<string:error>/<string:message>" % error_page,
+            f"{error_page}<string:message>",
+            f"{error_page}<string:error>/<string:message>",
         ],
         type="http",
         auth="public",
@@ -612,3 +616,37 @@ class ProductConfigWebsiteSale(WebsiteSale):
             )
         vals = {"message": message, "error": error}
         return request.render("website_product_configurator.error_page", vals)
+
+    @http.route()
+    def cart_update(self, product_id, add_qty=1, set_qty=0, **kw):
+        """This route is called when adding a product to cart (no options)."""
+        sale_order = request.website.sale_get_order(force_create=True)
+        if sale_order.state != "draft":
+            request.session["sale_order_id"] = None
+            sale_order = request.website.sale_get_order(force_create=True)
+
+        product_custom_attribute_values = None
+        if kw.get("product_custom_attribute_values"):
+            product_custom_attribute_values = json.loads(
+                kw.get("product_custom_attribute_values")
+            )
+
+        no_variant_attribute_values = None
+        if kw.get("no_variant_attribute_values"):
+            no_variant_attribute_values = json.loads(
+                kw.get("no_variant_attribute_values")
+            )
+
+        sale_order._cart_update(
+            product_id=int(product_id),
+            add_qty=add_qty,
+            set_qty=set_qty,
+            product_custom_attribute_values=product_custom_attribute_values,
+            no_variant_attribute_values=no_variant_attribute_values,
+            # BizzAppDev Customization
+            config_session_id=kw.get("config_session_id", False),
+            # BizzAppDev Customization End
+        )
+        if kw.get("express"):
+            return request.redirect("/shop/checkout?express=1")
+        return request.redirect("/shop/cart")

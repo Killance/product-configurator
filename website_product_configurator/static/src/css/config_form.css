@@ -114,7 +114,7 @@
     -moz-filter: brightness(90%) contrast(110%) grayscale(50%) opacity(90%);
     filter: brightness(90%) contrast(110%) grayscale(50%) opacity(90%);
 }
-.image_config_attr_value_radio[enabled="True"]:hover {
+.image_config_attr_value_radio:hover {
     -webkit-filter: none;
     -moz-filter: none;
     filter: none;
@@ -154,8 +154,4 @@
     z-index: 1;
     width: 138px;
     margin: 25px auto auto 5px;
-}
-
-.config_attribute.cfg-radio {
-    display: inline-table;
 }

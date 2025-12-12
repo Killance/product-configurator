@@ -1,12 +1,11 @@
 /** @odoo-module **/
 
 import {registry} from "@web/core/registry";
+import {whenReady} from "@odoo/owl";
 
 registry.category("web_tour.tours").add("config", {
-    test: true,
     url: "/shop",
-    sequence: 20,
-
+    wait_for: whenReady(),
     steps: () => [
         {
             content: "search 2 series",
@@ -161,6 +160,11 @@ registry.category("web_tour.tours").add("config", {
         {
             content: "click on add to cart",
             trigger: "#add_to_cart",
+            run: "click",
+        },
+        {
+            content: "proceed to checkout product",
+            trigger: 'a[href*="/shop/checkout"]',
             run: "click",
         },
     ],

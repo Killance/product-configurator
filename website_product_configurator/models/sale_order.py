@@ -47,7 +47,7 @@ class SaleOrder(models.Model):
 
         # If a line ID is provided, return the initial product line.
         if not config_session_id or not config_session_id.isdigit():
-            # Return the original order line if config_session_id is undefinded.
+            # Return the original order line if config_session_id is undefined.
             return order_line
 
         # Filter the product line based on the config_session_id.

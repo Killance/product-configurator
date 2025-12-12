@@ -1,10 +1,10 @@
 /** @odoo-module **/
 
-import {WarningDialog} from "@web/core/errors/error_dialogs";
 import {insertThousandsSep} from "@web/core/utils/numbers";
-import {jsonrpc} from "@web/core/network/rpc_service";
 import {localization} from "@web/core/l10n/localization";
 import publicWidget from "@web/legacy/js/public/public_widget";
+import {rpc} from "@web/core/network/rpc";
+import {WarningDialog} from "@web/core/errors/error_dialogs";
 
 publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
     selector: ".product_configurator",
@@ -50,7 +50,7 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
 
             this.call("ui", "block");
 
-            const data = await jsonrpc("/website_product_configurator/onchange", {
+            const data = await rpc("/website_product_configurator/onchange", {
                 form_values: form_data,
                 field_name: attribute[0].getAttribute("name"),
             });
@@ -79,14 +79,14 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
     },
 
     _checkChange: function (attr_field) {
-        var flag = true;
-        if (attr_field.classList.contains("cfg-radio")) {
+        let flag = true;
+        if ($(attr_field).hasClass("cfg-radio")) {
             flag = !(
-                attr_field.getAttribute("data-old-val-id") ===
+                $(attr_field).attr("data-old-val-id") ===
                 $(attr_field).find("input:checked").val()
             );
-        } else if (attr_field.classList.contains("cfg-select")) {
-            flag = !($(attr_field).attr("data-old-val-id") === attr_field.value);
+        } else if ($(attr_field).hasClass("cfg-select")) {
+            flag = !($(attr_field).attr("data-old-val-id") === $(attr_field).val());
         }
         return flag;
     },
@@ -219,27 +219,19 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
         }
     },
 
-    price_to_str: function (price, precision) {
-        var formatted = price.toFixed(precision).split(".");
-        const {thousandsSep, decimalPoint, grouping} = localization;
-        formatted[0] = insertThousandsSep(formatted[0], thousandsSep, grouping);
-        return formatted.join(decimalPoint);
-    },
-
-    weight_to_str: function (weight, precision) {
-        var formatted = weight.toFixed(precision).split(".");
-        const {thousandsSep, decimalPoint, grouping} = localization;
+    number_to_str: function (price, decimal) {
+        var formatted = price.toFixed(decimal).split(".");
+        var {thousandsSep, decimalPoint, grouping} = localization;
         formatted[0] = insertThousandsSep(formatted[0], thousandsSep, grouping);
         return formatted.join(decimalPoint);
     },
 
     _setWeightPrice: function (weight, price, decimal_precisions) {
-        var formatted_price = this.price_to_str(price, decimal_precisions.price);
-        var formatted_weight = this.weight_to_str(weight, decimal_precisions.weight);
-        this.$(".config_product_weight").text(formatted_weight);
-        this.$(".config_product_price")
-            .find(".oe_currency_value")
-            .text(formatted_price);
+        var self = this;
+        var formatted_price = self.number_to_str(price, decimal_precisions.price);
+        var formatted_weight = self.number_to_str(weight, decimal_precisions.weight);
+        $(".config_product_weight").text(formatted_weight);
+        $(".config_product_price").find(".oe_currency_value").text(formatted_price);
     },
 
     _handleCustomAttribute: function (event) {
@@ -281,25 +273,27 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
     },
 
     _onChangeDateTime: function (event) {
+        var self = this;
         var attribute = $(event.currentTarget).find("input.required_config_attrib");
-        this._checkRequiredFields(attribute);
+        self._checkRequiredFields(attribute);
     },
 
     _checkRequiredFields: function (config_attr) {
-        var flag_all = true;
+        var self = this;
+        let flag_all = true;
         for (var i = 0; i < config_attr.length; i++) {
-            var flag = true;
+            let flag = true;
             if (!$(config_attr[i]).hasClass("required_config_attrib")) {
                 flag = true;
             } else if ($(config_attr[i]).hasClass("cfg-radio")) {
-                flag = this._checkRequiredFieldsRadio($(config_attr[i]));
+                flag = self._checkRequiredFieldsRadio($(config_attr[i]));
             } else if (!config_attr[i].value.trim() || config_attr[i].value === "0") {
                 flag = false;
             }
             if (!flag) {
-                this.$(config_attr[i]).addClass("textbox-border-color");
+                $(config_attr[i]).addClass("textbox-border-color");
             } else if (flag && $(config_attr[i]).hasClass("textbox-border-color")) {
-                this.$(config_attr[i]).removeClass("textbox-border-color");
+                $(config_attr[i]).removeClass("textbox-border-color");
             }
             flag_all &= flag;
         }
@@ -315,35 +309,38 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
     },
 
     _onChangeFile: function (ev) {
+        var self = this;
         var result = $.Deferred();
         var file = ev.target.files[0];
         if (!file) {
             return true;
         }
-        var files_data = "";
+        let files_data = "";
         var BinaryReader = new FileReader();
         // File read as DataURL
         BinaryReader.readAsDataURL(file);
         BinaryReader.onloadend = function (upload) {
-            var buffer = upload.target.result;
+            let buffer = upload.target.result;
             buffer = buffer.split(",")[1];
             files_data = buffer;
-            this.image_dict[ev.target.name] = files_data;
+            self.image_dict[ev.target.name] = files_data;
             result.resolve();
         };
         return result.promise();
     },
 
     _onChangeCustomField: function (event) {
+        var self = this;
         var attribute = [event.currentTarget];
-        this._checkRequiredFields(attribute);
+        self._checkRequiredFields(attribute);
     },
 
     _onClickConfigStep: function (event) {
+        var self = this;
         var next_step = event.currentTarget.getAttribute("data-step-id");
-        var result = this._onChangeConfigStep(event, next_step);
+        var result = self._onChangeConfigStep(event, next_step);
         if (result) {
-            this._handleFooterButtons($(event.currentTarget));
+            self._handleFooterButtons($(event.currentTarget));
         } else {
             event.preventDefault();
             event.stopPropagation();
@@ -355,7 +352,6 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
         var active_step = self.config_form
             .find(".tab-content")
             .find(".tab-pane.active.show");
-
         var config_attr = active_step.find(".form-control.required_config_attrib");
         var flag = self._checkRequiredFields(config_attr);
         var config_step_header = self.config_form.find(".nav.nav-tabs");
@@ -369,7 +365,7 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
         }
         if (flag) {
             self.call("ui", "block");
-            return jsonrpc("/website_product_configurator/save_configuration", {
+            return rpc("/website_product_configurator/save_configuration", {
                 form_values: form_data,
                 next_step: next_step || false,
                 current_step: current_config_step || false,
@@ -458,14 +454,15 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
     },
 
     _openNextStep: function (step) {
-        var config_step_header = this.config_form.find(".nav.nav-tabs");
+        var self = this;
+        var config_step_header = self.config_form.find(".nav.nav-tabs");
         var config_step = config_step_header.find(
             ".nav-item.config_step > .nav-link.active"
         );
         if (config_step.length) {
             config_step.removeClass("active");
         }
-        var active_step = this.config_form
+        var active_step = self.config_form
             .find(".tab-content")
             .find(".tab-pane.active.show");
         active_step.removeClass("active");
@@ -477,7 +474,7 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
         if (next_step.length) {
             next_step.addClass("active");
             var selector = next_step.attr("href");
-            var step_to_active = this.config_form.find(".tab-content").find(selector);
+            var step_to_active = self.config_form.find(".tab-content").find(selector);
             step_to_active.addClass("active");
             step_to_active.addClass("show");
         }
@@ -502,6 +499,17 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
             }
             value_input.change();
         }
+    },
+
+    addRequiredAttr: function (config_step) {
+        this.config_form
+            .find(".tab-content")
+            .find("tab-pane container[data-step-id=" + config_step + "]");
+        config_step
+            .find(".form-control.config_attribute")
+            .each(function (attribute_field) {
+                $(attribute_field).attr("required", true);
+            });
     },
 
     _onChangeQtySpinner: function (ev) {
@@ -529,11 +537,11 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
             .find("input.custom_config_value");
         var max_val = parseFloat(custom_value.attr("max") || Infinity);
         var min_val = parseFloat(custom_value.attr("min") || 0);
-        var new_qty = min_val;
+        let new_qty = min_val;
         var ui_val = parseFloat(custom_value.val());
         var custom_type = custom_value.attr("data-type");
-        var message = "";
-        var attribute_name = custom_value;
+        let message = "";
+        let attribute_name = custom_value;
         if (isNaN(ui_val)) {
             message = "Please enter a number.";
             self._displayTooltip(custom_value, message);
@@ -594,9 +602,7 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
                 trigger: "manual",
             })
             .tooltip("show");
-        setTimeout(function () {
-            $(config_attribute).tooltip("dispose");
-        }, 4000);
+        setTimeout(() => $(config_attribute).tooltip("dispose"), 4000);
     },
 
     _disableEnableAddRemoveQtyButton: function (
@@ -618,4 +624,5 @@ publicWidget.registry.ProductConfigurator = publicWidget.Widget.extend({
         }
     },
 });
+
 export default publicWidget.registry.ProductConfigurator;
